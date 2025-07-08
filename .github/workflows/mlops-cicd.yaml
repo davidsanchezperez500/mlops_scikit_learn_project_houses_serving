@@ -44,73 +44,20 @@ jobs:
       - name: "Configure Docker for Artifact Registry"
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
-      - name: "Build and Push Trainer Docker Image"
-        run: |
-          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REGISTRY_REPO }}/house-price-trainer:latest"
-          echo "Building Docker image: ${IMAGE_TAG}"
-          docker build --platform linux/amd64 -t "${IMAGE_TAG}" .
-          echo "Pushing Docker image: ${IMAGE_TAG}"
-          docker push "${IMAGE_TAG}"
-
-
       - name: "Build and Push Serving Docker Image"
         run: |
+          gsutil cp gs://${{ env.GCP_VERTEX_BUCKET }}/models/house-price-model/model.joblib model.joblib
           SERVING_IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REGISTRY_REPO }}/house-price-predictor:latest"
           echo "Building Serving Docker image: ${SERVING_IMAGE_TAG}"
-          docker build --platform linux/amd64 -f Dockerfile.serve -t "${SERVING_IMAGE_TAG}" .
+          docker build --platform linux/amd64 -f Dockerfile -t "${SERVING_IMAGE_TAG}" .
           echo "Pushing Serving Docker image: ${SERVING_IMAGE_TAG}"
           docker push "${SERVING_IMAGE_TAG}"
-
-      - name: "Upload Data to GCS"
-        run: |
-          gsutil cp housing.csv gs://${{ env.GCP_VERTEX_BUCKET }}/data/housing.csv
-
-      - name: "Execute Training Job on Vertex AI"
-        id: custom_job_create
-        run: |
-          IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REGISTRY_REPO }}/house-price-trainer:latest"
-          JOB_DISPLAY_NAME="House-Price-Training-Job-$(date +%Y%m%d%H%M%S)"
-          MODEL_OUTPUT_DIR="/gcs/${{ env.GCP_VERTEX_BUCKET }}/models/house-price-model"
-          echo "Starting Vertex AI Custom Job: ${JOB_DISPLAY_NAME}"
-          # Lanzar el job y capturar el resource name
-          JOB_RESOURCE_NAME=$(gcloud ai custom-jobs create \
-            --display-name="${JOB_DISPLAY_NAME}" \
-            --region=${{ env.GCP_REGION }} \
-            --worker-pool-spec=machine-type=n1-standard-4,replica-count=1,container-image-uri="${IMAGE_TAG}" \
-            --args=--data-path=gs://${{ env.GCP_VERTEX_BUCKET }}/data/housing.csv,--model-dir="${MODEL_OUTPUT_DIR}" \
-            --format="value(name)")
-          echo "Custom Job resource name: ${JOB_RESOURCE_NAME}"
-          if [ -z "$JOB_RESOURCE_NAME" ]; then
-            echo "::error::Failed to create Vertex AI Custom Job."
-            exit 1
-          fi
-          # Esperar a que el job termine
-          echo "Waiting for Vertex AI Custom Job to complete..."
-          while true; do
-            JOB_STATE=$(gcloud ai custom-jobs describe "$JOB_RESOURCE_NAME" --region=${{ env.GCP_REGION }} --format="value(state)")
-            echo "Current job state: $JOB_STATE"
-            if [[ "$JOB_STATE" == "JOB_STATE_SUCCEEDED" ]]; then
-              echo "Vertex AI Training job completed successfully."
-              break
-            elif [[ "$JOB_STATE" == "JOB_STATE_FAILED" || "$JOB_STATE" == "JOB_STATE_CANCELLED" ]]; then
-              echo "::error::Vertex AI Training job failed or was cancelled."
-              exit 1
-            fi
-            sleep 30
-          done
 
       - name: "Upload Model to Vertex AI Model Registry"
         id: model_upload
         run: |
           MODEL_ARTIFACT_URI="gs://${{ env.GCP_VERTEX_BUCKET }}/models/house-price-model/"
           SERVING_IMAGE_TAG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GCP_ARTIFACT_REGISTRY_REPO }}/house-price-predictor:latest"
-
-          # Verificar si el archivo model.joblib existe en GCS después del entrenamiento
-          echo "Verificando si el artefacto del modelo 'model.joblib' existe en ${MODEL_ARTIFACT_URI}model.joblib"
-          if ! gsutil ls "${MODEL_ARTIFACT_URI}model.joblib" &> /dev/null; then
-              echo "::error::Model artifact 'model.joblib' not found at ${MODEL_ARTIFACT_URI}model.joblib. Ensure your training job completed successfully and outputted the model."
-              exit 1
-          fi
 
           echo "Uploading model to Vertex AI Model Registry..."
           gcloud ai models upload \
