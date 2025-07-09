@@ -2,10 +2,13 @@ FROM python:3.10-slim-buster
 
 WORKDIR /app
 
-COPY requirements.txt.serve .
-RUN pip install -r requirements.txt.serve
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 COPY app.py .
+
+RUN mkdir -p /app/model/
+COPY model.joblib /app/model/model.joblib
 
 EXPOSE 8080
 

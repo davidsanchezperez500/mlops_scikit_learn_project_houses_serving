@@ -1,23 +1,11 @@
-# app.py (Versión de Diagnóstico)
-
-
+# app.py
 import os
 import joblib
 import pandas as pd
-import numpy as np
 from flask import Flask, request, jsonify
 from typing import List, Dict, Any
-
-print(f"[INFO] numpy version: {np.__version__}")
-print(f"[INFO] pandas version: {pd.__version__}")
-try:
-    import sklearn
-    print(f"[INFO] scikit-learn version: {sklearn.__version__}")
-except ImportError:
-    print("[INFO] scikit-learn not installed")
-print(f"[INFO] joblib version: {joblib.__version__}")
-
-print(f"[INFO] numpy version: {np.__version__}")
+import numpy as np # Nueva importación
+import sklearn # Nueva importación
 
 # ==============================================================================
 # IMPORTANTE: AJUSTA ESTA LISTA
@@ -35,70 +23,38 @@ EXPECTED_FEATURES = [
 app = Flask(__name__)
 
 # ==============================================================================
-# Función para cargar el modelo (con logging de diagnóstico)
+# Función para cargar el modelo
 # ==============================================================================
-def load_model_pipeline_diagnostic():
+def load_model_pipeline():
     """
-    Intenta cargar el pipeline de scikit-learn entrenado y registra
-    información de diagnóstico sobre el directorio del modelo.
+    Carga el pipeline de scikit-learn entrenado desde la ruta local.
+    El modelo se copia directamente en la imagen en /app/model/.
     """
-    # La ruta estándar de montaje del modelo en Vertex AI
-    model_path = "/mnt/models/" 
+    # La ruta del modelo es ahora fija dentro del contenedor, ya que se incrusta en la imagen.
+    model_path = "/app/model/"
     
     # Construye la ruta completa al archivo del modelo
     full_model_path = os.path.join(model_path, 'model.joblib')
     
-    print(f"DEBUG: Intentando cargar el modelo desde: {full_model_path}")
-    
-    # ==========================================================================
-    # LOGGING DE DIAGNÓSTICO: Inspeccionar el directorio /mnt/models/
-    # ==========================================================================
-    print(f"DEBUG: Verificando el directorio del modelo: {model_path}")
-    if os.path.exists(model_path):
-        print(f"DEBUG: Directorio {model_path} EXISTE.")
-        if os.path.isdir(model_path):
-            print(f"DEBUG: {model_path} es un directorio.")
-            # Listar contenido del directorio
-            print(f"DEBUG: Contenido de {model_path}:")
-            try:
-                contents = os.listdir(model_path)
-                if not contents:
-                    print(f"  El directorio {model_path} está VACÍO.")
-                else:
-                    for item in contents:
-                        item_path = os.path.join(model_path, item)
-                        if os.path.isfile(item_path):
-                            print(f"  - Archivo: {item} (Tamaño: {os.path.getsize(item_path)} bytes)")
-                        elif os.path.isdir(item_path):
-                            print(f"  - Directorio: {item}")
-                        else:
-                            print(f"  - Otro: {item}")
-            except Exception as e:
-                print(f"DEBUG: Error al listar el contenido de {model_path}: {e}")
-        else:
-            print(f"DEBUG: {model_path} EXISTE, pero NO es un directorio.")
-    else:
-        print(f"DEBUG: Directorio {model_path} NO EXISTE.")
-    # ==========================================================================
-
+    print(f"Intentando cargar el modelo desde: {full_model_path}")
     try:
         # Carga el pipeline completo (preprocesador + modelo)
         model = joblib.load(full_model_path)
         print("Modelo cargado exitosamente.")
         return model
-    except FileNotFoundError:
-        print(f"ERROR: Model file NOT FOUND at {full_model_path}. Este es el problema principal.")
-        raise RuntimeError(f"Model file not found: {full_model_path}")
     except Exception as e:
-        print(f"ERROR: Fallo al cargar el modelo desde {full_model_path}: {e}")
+        print(f"Error al cargar el modelo desde {full_model_path}: {e}")
         import traceback
         traceback.print_exc()
+        # Si el modelo no se carga, el worker no puede arrancar.
         raise RuntimeError(f"Failed to load model: {e}")
 
 # ==============================================================================
 # Cargar el modelo al inicio del módulo
+# Esto asegura que el modelo se cargue una vez por cada worker de Gunicorn
+# cuando el módulo app.py es importado.
 # ==============================================================================
-MODEL_PIPELINE = load_model_pipeline_diagnostic()
+MODEL_PIPELINE = load_model_pipeline()
 
 
 @app.route("/predict", methods=["POST"])
@@ -137,4 +93,3 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
