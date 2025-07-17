@@ -3,7 +3,7 @@ name: MLOps CI/CD Pipeline Serving
 on:
   push:
     branches:
-      - serving_pipelines
+      - fix/update_requirements
 
 jobs:
   build_train_deploy:
